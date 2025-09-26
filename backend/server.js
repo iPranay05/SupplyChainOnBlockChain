@@ -17,17 +17,34 @@ const PORT = process.env.PORT || 3002;
 
 // Middleware - Allow mobile access
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'http://192.168.0.193:3000',
-    'http://192.168.0.193:3001',
-    'http://192.168.0.193:3002',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001',
-    'http://127.0.0.1:3002'
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Allow localhost and development URLs
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:3002',
+      'http://192.168.0.193:3000',
+      'http://192.168.0.193:3001',
+      'http://192.168.0.193:3002',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001',
+      'http://127.0.0.1:3002'
+    ];
+    
+    // Allow any Render, Vercel, Netlify, or other deployment URLs
+    if (origin.includes('render.com') || 
+        origin.includes('vercel.app') || 
+        origin.includes('netlify.app') ||
+        origin.includes('github.io') ||
+        allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -40,6 +57,24 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(uploadsDir));
+
+// Root route - API information
+app.get('/', (req, res) => {
+  res.json({
+    message: 'AgriTrace Backend API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: '/api/health',
+      register: '/api/register',
+      login: '/api/login',
+      products: '/api/products',
+      purchase: '/api/purchase'
+    },
+    documentation: 'This is the backend API for AgriTrace supply chain application',
+    frontend: 'Deploy the frontend separately for the full application'
+  });
+});
 
 // Health check endpoint for deployment
 app.get('/api/health', (req, res) => {
