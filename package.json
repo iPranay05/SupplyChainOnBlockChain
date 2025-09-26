@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "cd frontend && npm run dev",
-    "build": "npm install && cd backend && npm install && cd ../frontend && npm install && npm run build && npm run export",
+    "build": "npm install && cd backend && npm install",
     "start": "node index.js",
     "start:frontend": "cd frontend && npm start",
     "compile": "hardhat compile",
@@ -42,8 +42,11 @@
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.544.0",
     "multer": "^2.0.2",
+    "next": "14.0.0",
     "node-fetch": "^2.7.0",
     "qrcode": "^1.5.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "sqlite3": "^5.1.6"
   }
 }
