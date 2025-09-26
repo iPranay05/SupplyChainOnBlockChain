@@ -1,0 +1,39 @@
+{
+  "name": "agritrace",
+  "version": "1.0.0",
+  "description": "Blockchain-based agricultural supply chain tracking system",
+  "main": "index.js",
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "start": "cd frontend && npm start",
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy.js",
+    "deploy:fuji": "hardhat run scripts/deploy.js --network fuji",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "deploy:amoy": "hardhat run scripts/deploy.js --network amoy",
+    "deploy:mumbai": "hardhat run scripts/deploy.js --network mumbai",
+    "deploy:polygon": "hardhat run scripts/deploy.js --network polygon",
+    "test": "hardhat test",
+    "setup": "npm install && cd frontend && npm install"
+  },
+  "keywords": [
+    "blockchain",
+    "agriculture",
+    "supply-chain",
+    "ethereum",
+    "nextjs"
+  ],
+  "author": "AgriTrace Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@nomiclabs/hardhat-waffle": "^2.0.6",
+    "hardhat": "^2.19.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "ethers": "^5.7.2",
+    "lucide-react": "^0.544.0"
+  }
+}
