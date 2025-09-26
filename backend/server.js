@@ -58,22 +58,45 @@ if (!fs.existsSync(uploadsDir)) {
 // Serve static files from uploads directory
 app.use('/uploads', express.static(uploadsDir));
 
-// Root route - API information
+// Serve frontend static files
+const frontendPath = path.join(__dirname, '../frontend/.next/static');
+const frontendPublicPath = path.join(__dirname, '../frontend/public');
+if (fs.existsSync(frontendPath)) {
+  app.use('/_next/static', express.static(frontendPath));
+}
+if (fs.existsSync(frontendPublicPath)) {
+  app.use('/public', express.static(frontendPublicPath));
+}
+
+// Root route - serve frontend or API info
 app.get('/', (req, res) => {
-  res.json({
-    message: 'AgriTrace Backend API',
-    version: '1.0.0',
-    status: 'running',
-    endpoints: {
-      health: '/api/health',
-      register: '/api/register',
-      login: '/api/login',
-      products: '/api/products',
-      purchase: '/api/purchase'
-    },
-    documentation: 'This is the backend API for AgriTrace supply chain application',
-    frontend: 'Deploy the frontend separately for the full application'
-  });
+  // Check if frontend build exists
+  const frontendIndexPath = path.join(__dirname, '../frontend/.next/server/pages/index.html');
+  const frontendOutPath = path.join(__dirname, '../frontend/out/index.html');
+  
+  // Try to serve built frontend first
+  if (fs.existsSync(frontendOutPath)) {
+    res.sendFile(frontendOutPath);
+  } else if (fs.existsSync(frontendIndexPath)) {
+    res.sendFile(frontendIndexPath);
+  } else {
+    // Fallback to API information
+    res.json({
+      message: 'AgriTrace Full-Stack Application',
+      version: '1.0.0',
+      status: 'running',
+      mode: 'API-only (Frontend not built)',
+      endpoints: {
+        health: '/api/health',
+        register: '/api/register',
+        login: '/api/login',
+        products: '/api/products',
+        purchase: '/api/purchase'
+      },
+      documentation: 'This is the backend API for AgriTrace supply chain application',
+      note: 'Frontend build not found. Run build process to serve full application.'
+    });
+  }
 });
 
 // Health check endpoint for deployment

@@ -1,35 +1,56 @@
-// Entry point for deployment
-// This file starts the backend server
+// Entry point for full-stack deployment
+// This file builds the frontend and starts the backend server
 
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
+const fs = require('fs');
 
-// Change to backend directory and start the server
-process.chdir(path.join(__dirname, 'backend'));
+console.log('🚀 Starting AgriTrace full-stack deployment...');
 
-// Start the backend server
-const server = spawn('node', ['server.js'], {
-    stdio: 'inherit',
-    env: { ...process.env }
+// Build frontend first
+console.log('📦 Building frontend...');
+const buildProcess = exec('cd frontend && npm run build', (error, stdout, stderr) => {
+    if (error) {
+        console.error('❌ Frontend build failed:', error);
+        return;
+    }
+    console.log('✅ Frontend build completed');
+    console.log(stdout);
+    
+    // Start the backend server after frontend is built
+    startBackend();
 });
 
-server.on('error', (err) => {
-    console.error('Failed to start server:', err);
-    process.exit(1);
-});
+function startBackend() {
+    console.log('🔧 Starting backend server...');
+    
+    // Change to backend directory and start the server
+    process.chdir(path.join(__dirname, 'backend'));
 
-server.on('close', (code) => {
-    console.log(`Server process exited with code ${code}`);
-    process.exit(code);
-});
+    // Start the backend server
+    const server = spawn('node', ['server.js'], {
+        stdio: 'inherit',
+        env: { ...process.env }
+    });
 
-// Handle process termination
-process.on('SIGINT', () => {
-    console.log('Received SIGINT, shutting down gracefully');
-    server.kill('SIGINT');
-});
+    server.on('error', (err) => {
+        console.error('❌ Failed to start server:', err);
+        process.exit(1);
+    });
 
-process.on('SIGTERM', () => {
-    console.log('Received SIGTERM, shutting down gracefully');
-    server.kill('SIGTERM');
-});
+    server.on('close', (code) => {
+        console.log(`🔴 Server process exited with code ${code}`);
+        process.exit(code);
+    });
+
+    // Handle process termination
+    process.on('SIGINT', () => {
+        console.log('🛑 Received SIGINT, shutting down gracefully');
+        server.kill('SIGINT');
+    });
+
+    process.on('SIGTERM', () => {
+        console.log('🛑 Received SIGTERM, shutting down gracefully');
+        server.kill('SIGTERM');
+    });
+}
