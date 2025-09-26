@@ -5,14 +5,14 @@
   "main": "index.js",
   "scripts": {
     "dev": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build",
-    "start": "cd frontend && npm start",
+    "build": "npm install && cd backend && npm install && cd ../frontend && npm install && npm run build",
+    "start": "node index.js",
+    "start:frontend": "cd frontend && npm start",
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy.js",
     "deploy:fuji": "hardhat run scripts/deploy.js --network fuji",
     "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
     "deploy:amoy": "hardhat run scripts/deploy.js --network amoy",
-    "deploy:mumbai": "hardhat run scripts/deploy.js --network mumbai",
     "deploy:polygon": "hardhat run scripts/deploy.js --network polygon",
     "test": "hardhat test",
     "setup": "npm install && cd frontend && npm install"
@@ -32,8 +32,18 @@
     "hardhat": "^2.19.0"
   },
   "dependencies": {
-    "dotenv": "^17.2.2",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
     "ethers": "^5.7.2",
-    "lucide-react": "^0.544.0"
+    "express": "^4.18.2",
+    "form-data": "^4.0.0",
+    "ipfs-http-client": "^60.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.544.0",
+    "multer": "^2.0.2",
+    "node-fetch": "^2.7.0",
+    "qrcode": "^1.5.3",
+    "sqlite3": "^5.1.6"
   }
 }
