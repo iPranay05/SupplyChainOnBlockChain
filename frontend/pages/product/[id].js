@@ -64,13 +64,17 @@ export default function ProductDetail() {
     }
   };
 
-  const qrData = JSON.stringify({
-    productId: id,
-    name: product?.name,
-    farmer: product?.farmer,
-    harvestDate: product?.harvestDate.toString(),
-    url: `${window.location.origin}/product/${id}`
-  });
+  const getQrData = () => {
+    if (typeof window === 'undefined') return '';
+    
+    return JSON.stringify({
+      productId: id,
+      name: product?.name,
+      farmer: product?.farmer,
+      harvestDate: product?.harvestDate?.toString(),
+      url: `${window.location.origin}/product/${id}`
+    });
+  };
 
   if (loading) {
     return (
@@ -250,7 +254,7 @@ export default function ProductDetail() {
             {showQR && (
               <div className="card text-center">
                 <h3 className="text-lg font-semibold mb-4">Product QR Code</h3>
-                <QRCode value={qrData} size={200} className="mx-auto mb-4" />
+                <QRCode value={getQrData()} size={200} className="mx-auto mb-4" />
                 <p className="text-sm text-gray-600">
                   Scan this QR code to quickly access product information
                 </p>
