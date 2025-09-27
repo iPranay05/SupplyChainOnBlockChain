@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
+import { getApiUrl } from '../utils/api';
 import FarmerDashboard from '../components/FarmerDashboard';
 import DistributorDashboard from '../components/DistributorDashboard';
 import RetailerDashboard from '../components/RetailerDashboard';
@@ -32,7 +33,7 @@ export default function UniversalDashboard() {
 
     try {
       // Refresh user data from server
-      const response = await fetch('http://localhost:3002/api/profile', {
+      const response = await fetch(getApiUrl('/api/profile'), {
         headers: {
           'Authorization': `Bearer ${token}`
         }

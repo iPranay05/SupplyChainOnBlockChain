@@ -1,6 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
+import MobileQRScanner from '../components/MobileQRScanner';
+import { getApiUrl } from '../utils/api';
 import { QrCode, Camera, Upload, Search, Package, User, MapPin, Calendar } from 'lucide-react';
 
 export default function Scan() {
@@ -37,7 +39,7 @@ export default function Scan() {
     setError('');
     
     try {
-      const response = await fetch(`http://localhost:3002/api/products/${productId}`);
+      const response = await fetch(getApiUrl(`/api/products/${productId}`));
       const data = await response.json();
       
       if (response.ok) {

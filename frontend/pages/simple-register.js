@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
+import { getApiUrl } from '../utils/api';
 import Layout from '../components/Layout';
 import { User, Phone, MapPin, Briefcase } from 'lucide-react';
 
@@ -29,7 +31,7 @@ export default function SimpleRegister() {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:3002/api/register', {
+      const response = await fetch(getApiUrl('/api/register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

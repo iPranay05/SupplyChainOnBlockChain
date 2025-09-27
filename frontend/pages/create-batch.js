@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
-import { Plus, MapPin, Camera, Upload, Thermometer } from 'lucide-react';
+import { getApiUrl } from '../utils/api';
+import { 
+  Upload, 
+  MapPin, 
+  Calendar, 
+  Package, 
+  Star,
+  Camera,
+  Loader,
+  CheckCircle,
+  Plus
+} from 'lucide-react';
 import { apiCall } from '../utils/api';
 
 export default function CreateBatch() {
@@ -16,7 +27,8 @@ export default function CreateBatch() {
     farmLocation: '',
     gpsCoordinates: '',
     qualityGrade: 'A',
-    isOrganic: false
+    isOrganic: false,
+    password: ''
   });
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -83,17 +95,22 @@ export default function CreateBatch() {
     try {
       const formDataToSend = new FormData();
       
-      // Add all form fields
-      Object.keys(formData).forEach(key => {
-        formDataToSend.append(key, formData[key]);
-      });
+      // Map form fields to backend expected fields
+      formDataToSend.append('name', formData.produce);
+      formDataToSend.append('variety', formData.variety);
+      formDataToSend.append('quantity', formData.quantity);
+      formDataToSend.append('price', formData.price);
+      formDataToSend.append('farmLocation', formData.farmLocation);
+      formDataToSend.append('qualityGrade', formData.qualityGrade);
+      formDataToSend.append('isOrganic', formData.isOrganic);
+      formDataToSend.append('password', formData.password); // Use user's password for blockchain
 
       // Add photo if selected
       if (photo) {
         formDataToSend.append('photo', photo);
       }
 
-      const response = await fetch('/api/batches', {
+      const response = await fetch(getApiUrl('/api/products'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('agriTrace_token')}`
@@ -105,7 +122,7 @@ export default function CreateBatch() {
 
       if (response.ok) {
         alert('Batch created successfully!');
-        router.push('/my-batches');
+        router.push('/farmer-dashboard');
       } else {
         alert(data.error || 'Failed to create batch');
       }
@@ -291,6 +308,23 @@ export default function CreateBatch() {
                 <label className="ml-2 block text-sm text-gray-900">
                   Organic Certified
                 </label>
+              </div>
+
+              {/* Password for Blockchain */}
+              <div>
+                <label className="label">Password (for blockchain registration) *</label>
+                <input
+                  type="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  className="input-field"
+                  placeholder="Enter your registration password"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This is the same password you used when registering your account
+                </p>
               </div>
             </div>
           </div>

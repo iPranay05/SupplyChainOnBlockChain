@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
+import { getApiUrl } from '../utils/api';
 import { 
   User, 
   Package, 
@@ -50,7 +51,7 @@ export default function SimpleDashboard() {
       setUser(JSON.parse(userData));
       
       // Load user's products
-      const response = await fetch('http://localhost:3002/api/products/my', {
+      const response = await fetch(getApiUrl('/api/products/my'), {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -79,7 +80,7 @@ export default function SimpleDashboard() {
 
     try {
       const token = localStorage.getItem('agriTrace_token');
-      const response = await fetch('http://localhost:3002/api/products', {
+      const response = await fetch(getApiUrl('/api/products'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

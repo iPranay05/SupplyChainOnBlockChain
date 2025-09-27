@@ -55,6 +55,15 @@ class Database {
       )
     `);
 
+    // Add registration_tx_hash column if it doesn't exist
+    this.db.run(`
+      ALTER TABLE products ADD COLUMN registration_tx_hash TEXT
+    `, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding registration_tx_hash column:', err);
+      }
+    });
+
     // Handoff events table (replacing transactions for detailed supply chain tracking)
     this.db.run(`
       CREATE TABLE IF NOT EXISTS handoff_events (

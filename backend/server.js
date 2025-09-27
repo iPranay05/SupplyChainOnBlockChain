@@ -15,6 +15,27 @@ const PinataService = require('./pinataService');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
+// JWT secret
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+// Middleware to verify JWT token
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
 // Middleware - Allow mobile access
 app.use(cors({
   origin: function (origin, callback) {
@@ -68,35 +89,23 @@ if (fs.existsSync(frontendPublicPath)) {
   app.use('/public', express.static(frontendPublicPath));
 }
 
-// Root route - serve frontend or API info
+// Root route - API information
 app.get('/', (req, res) => {
-  // Check if frontend build exists
-  const frontendIndexPath = path.join(__dirname, '../frontend/.next/server/pages/index.html');
-  const frontendOutPath = path.join(__dirname, '../frontend/out/index.html');
-  
-  // Try to serve built frontend first
-  if (fs.existsSync(frontendOutPath)) {
-    res.sendFile(frontendOutPath);
-  } else if (fs.existsSync(frontendIndexPath)) {
-    res.sendFile(frontendIndexPath);
-  } else {
-    // Fallback to API information
-    res.json({
-      message: 'AgriTrace Full-Stack Application',
-      version: '1.0.0',
-      status: 'running',
-      mode: 'API-only (Frontend not built)',
-      endpoints: {
-        health: '/api/health',
-        register: '/api/register',
-        login: '/api/login',
-        products: '/api/products',
-        purchase: '/api/purchase'
-      },
-      documentation: 'This is the backend API for AgriTrace supply chain application',
-      note: 'Frontend build not found. Run build process to serve full application.'
-    });
-  }
+  res.json({
+    message: 'AgriTrace Backend API',
+    version: '1.0.0',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/api/health',
+      register: '/api/register',
+      login: '/api/login',
+      products: '/api/products',
+      purchase: '/api/purchase'
+    },
+    documentation: 'This is the backend API for AgriTrace supply chain application',
+    frontend: 'Frontend should be served separately on port 3000'
+  });
 });
 
 // Health check endpoint for deployment
@@ -107,6 +116,351 @@ app.get('/api/health', (req, res) => {
     service: 'agritrace-backend'
   });
 });
+
+// Retailer-specific API routes
+app.get('/api/retailer/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Get retailer's products and transactions
+    const products = await db.query(`
+      SELECT p.*, t.* FROM products p 
+      LEFT JOIN transactions t ON p.id = t.product_id 
+      WHERE t.to_user_id = ? OR p.user_id = ?
+    `, [userId, userId]);
+    
+    const stats = {
+      totalRevenue: products.reduce((sum, p) => sum + (parseFloat(p.price) * parseFloat(p.quantity)), 0),
+      totalSales: products.filter(p => p.tx_type === 2).length, // Sales transactions
+      inventoryValue: products.reduce((sum, p) => sum + (parseFloat(p.price) * parseFloat(p.quantity)), 0),
+      lowStockItems: products.filter(p => parseFloat(p.quantity) <= 10).length,
+      todaysSales: products.filter(p => {
+        const today = new Date().toDateString();
+        return new Date(p.created_at).toDateString() === today;
+      }).reduce((sum, p) => sum + (parseFloat(p.price) * parseFloat(p.quantity)), 0),
+      weeklyGrowth: 15.2, // Mock data - calculate based on actual data
+      monthlyGrowth: 23.5, // Mock data
+      topSellingProduct: products.length > 0 ? { name: products[0].name } : null
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    console.error('Error getting retailer stats:', error);
+    res.status(500).json({ error: 'Failed to get stats' });
+  }
+});
+
+app.get('/api/retailer/recent-sales', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const recentSales = await db.query(`
+      SELECT p.name as productName, t.quantity, t.price as amount, t.created_at,
+             CASE 
+               WHEN DATE(t.created_at) = DATE('now') THEN 1 
+               ELSE 0 
+             END as isToday
+      FROM transactions t
+      JOIN products p ON t.product_id = p.id
+      WHERE t.from_user_id = ? AND t.tx_type = 2
+      ORDER BY t.created_at DESC
+      LIMIT 10
+    `, [userId]);
+    
+    // Add timeAgo calculation
+    const salesWithTime = recentSales.map(sale => ({
+      ...sale,
+      timeAgo: getTimeAgo(sale.created_at)
+    }));
+    
+    res.json(salesWithTime);
+  } catch (error) {
+    console.error('Error getting recent sales:', error);
+    res.status(500).json({ error: 'Failed to get recent sales' });
+  }
+});
+
+app.get('/api/retailer/inventory-summary', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const inventory = await db.query(`
+      SELECT p.name, p.variety, p.quantity, p.price,
+             CASE WHEN p.quantity <= 10 THEN 1 ELSE 0 END as isLowStock
+      FROM products p
+      WHERE p.user_id = ? OR EXISTS (
+        SELECT 1 FROM transactions t 
+        WHERE t.product_id = p.id AND t.to_user_id = ? AND t.tx_type = 1
+      )
+      ORDER BY p.quantity ASC
+    `, [userId, userId]);
+    
+    res.json(inventory);
+  } catch (error) {
+    console.error('Error getting inventory summary:', error);
+    res.status(500).json({ error: 'Failed to get inventory summary' });
+  }
+});
+
+app.get('/api/retailer/inventory', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const inventory = await db.query(`
+      SELECT p.*, u.name as farmer_name, u.location as farmer_location
+      FROM products p
+      JOIN users u ON p.user_id = u.id
+      WHERE p.user_id = ? OR EXISTS (
+        SELECT 1 FROM transactions t 
+        WHERE t.product_id = p.id AND t.to_user_id = ?
+      )
+      ORDER BY p.created_at DESC
+    `, [userId, userId]);
+    
+    res.json(inventory);
+  } catch (error) {
+    console.error('Error getting inventory:', error);
+    res.status(500).json({ error: 'Failed to get inventory' });
+  }
+});
+
+app.post('/api/retailer/update-stock', authenticateToken, async (req, res) => {
+  try {
+    const { productId, quantity, action } = req.body;
+    const userId = req.user.userId;
+    
+    // Get current product
+    const product = await db.query('SELECT * FROM products WHERE id = ?', [productId]);
+    if (!product.length) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    
+    let newQuantity;
+    switch (action) {
+      case 'set':
+        newQuantity = parseInt(quantity);
+        break;
+      case 'add':
+        newQuantity = parseInt(product[0].quantity) + parseInt(quantity);
+        break;
+      case 'subtract':
+        newQuantity = Math.max(0, parseInt(product[0].quantity) - parseInt(quantity));
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid action' });
+    }
+    
+    await db.run('UPDATE products SET quantity = ? WHERE id = ?', [newQuantity, productId]);
+    
+    res.json({ success: true, newQuantity });
+  } catch (error) {
+    console.error('Error updating stock:', error);
+    res.status(500).json({ error: 'Failed to update stock' });
+  }
+});
+
+app.get('/api/retailer/products', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const products = await db.query(`
+      SELECT p.*, u.name as farmer_name, u.location as farm_location
+      FROM products p
+      JOIN users u ON p.user_id = u.id
+      WHERE p.user_id = ? OR EXISTS (
+        SELECT 1 FROM transactions t 
+        WHERE t.product_id = p.id AND t.to_user_id = ?
+      )
+      ORDER BY p.created_at DESC
+    `, [userId, userId]);
+    
+    res.json(products);
+  } catch (error) {
+    console.error('Error getting products:', error);
+    res.status(500).json({ error: 'Failed to get products' });
+  }
+});
+
+app.post('/api/retailer/update-price', authenticateToken, async (req, res) => {
+  try {
+    const { productId, price } = req.body;
+    const userId = req.user.userId;
+    
+    // Verify user has access to this product
+    const product = await db.query(`
+      SELECT p.* FROM products p
+      WHERE p.id = ? AND (p.user_id = ? OR EXISTS (
+        SELECT 1 FROM transactions t 
+        WHERE t.product_id = p.id AND t.to_user_id = ?
+      ))
+    `, [productId, userId, userId]);
+    
+    if (!product.length) {
+      return res.status(404).json({ error: 'Product not found or access denied' });
+    }
+    
+    await db.run('UPDATE products SET price = ? WHERE id = ?', [price, productId]);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating price:', error);
+    res.status(500).json({ error: 'Failed to update price' });
+  }
+});
+
+app.get('/api/retailer/analytics', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const range = req.query.range || '30d';
+    
+    // Calculate date range
+    const daysBack = range === '7d' ? 7 : range === '30d' ? 30 : range === '90d' ? 90 : 365;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysBack);
+    
+    // Get sales data
+    const salesData = await db.query(`
+      SELECT p.name, p.variety, t.quantity, t.price, t.created_at,
+             DATE(t.created_at) as sale_date
+      FROM transactions t
+      JOIN products p ON t.product_id = p.id
+      WHERE t.from_user_id = ? AND t.tx_type = 2 AND t.created_at >= ?
+      ORDER BY t.created_at DESC
+    `, [userId, startDate.toISOString()]);
+    
+    // Calculate analytics
+    const totalRevenue = salesData.reduce((sum, sale) => sum + (parseFloat(sale.price) * parseFloat(sale.quantity)), 0);
+    const totalSales = salesData.length;
+    const avgOrderValue = totalSales > 0 ? totalRevenue / totalSales : 0;
+    
+    // Group by product for top products
+    const productSales = {};
+    salesData.forEach(sale => {
+      const key = `${sale.name}-${sale.variety}`;
+      if (!productSales[key]) {
+        productSales[key] = { name: sale.name, variety: sale.variety, totalSold: 0, revenue: 0 };
+      }
+      productSales[key].totalSold += parseFloat(sale.quantity);
+      productSales[key].revenue += parseFloat(sale.price) * parseFloat(sale.quantity);
+    });
+    
+    const topProducts = Object.values(productSales)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5);
+    
+    // Sales trends (daily)
+    const salesTrends = [];
+    for (let i = daysBack - 1; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const daySales = salesData.filter(sale => sale.sale_date === dateStr);
+      salesTrends.push({
+        date: date.toLocaleDateString(),
+        revenue: daySales.reduce((sum, sale) => sum + (parseFloat(sale.price) * parseFloat(sale.quantity)), 0),
+        sales: daySales.length,
+        customers: daySales.length // Simplified - each sale is one customer
+      });
+    }
+    
+    // Category breakdown (mock data)
+    const categoryBreakdown = [
+      { name: 'Vegetables', percentage: 45, quantity: 150, revenue: 15000 },
+      { name: 'Fruits', percentage: 30, quantity: 100, revenue: 12000 },
+      { name: 'Grains', percentage: 25, quantity: 80, revenue: 8000 }
+    ];
+    
+    const analytics = {
+      salesOverview: {
+        totalRevenue,
+        totalSales,
+        avgOrderValue,
+        growthRate: 15.2 // Mock growth rate
+      },
+      salesTrends,
+      topProducts,
+      customerInsights: {
+        totalCustomers: totalSales,
+        returningCustomers: Math.floor(totalSales * 0.3),
+        newCustomers: Math.floor(totalSales * 0.7)
+      },
+      monthlyData: salesTrends,
+      categoryBreakdown
+    };
+    
+    res.json(analytics);
+  } catch (error) {
+    console.error('Error getting analytics:', error);
+    res.status(500).json({ error: 'Failed to get analytics' });
+  }
+});
+
+// Farmer-specific API routes
+app.get('/api/farmer/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Get farmer's batches and products
+    const batches = await db.query(`
+      SELECT * FROM products WHERE user_id = ?
+    `, [userId]);
+    
+    const stats = {
+      totalBatches: batches.length,
+      activeBatches: batches.filter(b => parseFloat(b.quantity) > 0).length,
+      totalRevenue: batches.reduce((sum, b) => sum + (parseFloat(b.price) * parseFloat(b.quantity)), 0),
+      avgPrice: batches.length > 0 ? Math.round(batches.reduce((sum, b) => sum + parseFloat(b.price), 0) / batches.length) : 0,
+      thisMonthHarvest: batches.filter(b => {
+        const batchDate = new Date(b.created_at);
+        const now = new Date();
+        return batchDate.getMonth() === now.getMonth() && batchDate.getFullYear() === now.getFullYear();
+      }).reduce((sum, b) => sum + parseFloat(b.quantity), 0)
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    console.error('Error getting farmer stats:', error);
+    res.status(500).json({ error: 'Failed to get stats' });
+  }
+});
+
+app.get('/api/farmer/recent-batches', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const recentBatches = await db.query(`
+      SELECT name as produce, variety, quantity, created_at
+      FROM products 
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT 10
+    `, [userId]);
+    
+    // Add timeAgo calculation
+    const batchesWithTime = recentBatches.map(batch => ({
+      ...batch,
+      timeAgo: getTimeAgo(batch.created_at)
+    }));
+    
+    res.json(batchesWithTime);
+  } catch (error) {
+    console.error('Error getting recent batches:', error);
+    res.status(500).json({ error: 'Failed to get recent batches' });
+  }
+});
+
+// Helper function for time ago calculation
+function getTimeAgo(dateString) {
+  const now = new Date();
+  const date = new Date(dateString);
+  const diffInSeconds = Math.floor((now - date) / 1000);
+  
+  if (diffInSeconds < 60) return 'Just now';
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+  return `${Math.floor(diffInSeconds / 86400)}d ago`;
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -137,27 +491,6 @@ const upload = multer({
 const db = new Database();
 const walletService = new WalletService();
 const ipfsService = new PinataService();
-
-// JWT secret
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-
-// Middleware to verify JWT token
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    req.user = user;
-    next();
-  });
-};
 
 // Routes
 
@@ -591,8 +924,12 @@ app.post('/api/products', authenticateToken, upload.single('photo'), async (req,
     let txHash = null;
 
     try {
+      console.log('🔍 Checking if user is verified on blockchain:', user.wallet_address);
       const isVerified = await walletService.isStakeholderVerified(user.wallet_address);
+      console.log('✅ User verification status:', isVerified);
+      
       if (isVerified) {
+        console.log('🔐 User is verified, proceeding with blockchain registration...');
         const encryptedPrivateKey = JSON.parse(user.encrypted_private_key);
         const userWallet = walletService.getUserWallet(encryptedPrivateKey, req.body.password || 'default');
 
@@ -610,11 +947,19 @@ app.post('/api/products', authenticateToken, upload.single('photo'), async (req,
         blockchainId = result.productId;
         txHash = result.txHash;
 
-        // Update product with blockchain ID
+        // Update product with blockchain ID and registration TX hash
         await db.updateProductBlockchainId(product.id, blockchainId);
+        await db.run(
+          'UPDATE products SET registration_tx_hash = ? WHERE id = ?',
+          [txHash, product.id]
+        );
+        console.log('🎉 Product successfully registered on blockchain with ID:', blockchainId);
+        console.log('📝 Registration TX Hash:', txHash);
+      } else {
+        console.log('⚠️ User not verified on blockchain - product saved to database only');
       }
     } catch (error) {
-      console.error('Error registering product on blockchain:', error);
+      console.error('❌ Error registering product on blockchain:', error);
       // Continue anyway - product is saved in database
     }
 
@@ -655,7 +1000,9 @@ app.post('/api/products', authenticateToken, upload.single('photo'), async (req,
 // Get user's products
 app.get('/api/products/my', authenticateToken, async (req, res) => {
   try {
+    console.log(`📦 Fetching products for user ID: ${req.user.userId}`);
     const products = await db.getProductsByUserId(req.user.userId);
+    console.log(`📦 Found ${products.length} products for user ${req.user.userId}`);
     res.json(products);
   } catch (error) {
     console.error('Error getting user products:', error);
@@ -868,7 +1215,7 @@ app.post('/api/products/:id/qr-purchase', authenticateToken, upload.single('phot
     // Record transaction in database
     const transactionData = {
       productId: product.id,
-      fromUserId: null, // Will be determined by current owner
+      fromUserId: product.user_id, // Current owner
       toUserId: user.id,
       quantity: product.quantity,
       price: parseFloat(price),
@@ -880,23 +1227,55 @@ app.post('/api/products/:id/qr-purchase', authenticateToken, upload.single('phot
       txType: 1 // Transfer
     };
 
+    console.log('📝 Creating transaction:', transactionData);
     await db.createTransaction(transactionData);
 
-    // Update product status
+    // Update product status AND ownership
     await db.run(
-      'UPDATE products SET status = ? WHERE id = ?',
-      [newStatus, product.id]
+      'UPDATE products SET status = ?, user_id = ? WHERE id = ?',
+      [newStatus, user.id, product.id]
     );
+
+    console.log(`🔄 Product ${product.id} transferred from user ${product.user_id} to user ${user.id} with status ${newStatus}`);
+    
+    // Verify the update worked
+    const updatedProduct = await db.getProductById(product.id);
+    console.log(`✅ Verification - Product ${product.id} now owned by user ${updatedProduct.user_id}`);
 
     // Try blockchain transaction if possible
     let txHash = null;
     try {
       if (product.blockchain_id && user.wallet_address) {
-        // Blockchain transfer logic here
-        console.log('Blockchain transfer would happen here');
+        console.log('🔗 Attempting blockchain transfer...');
+        
+        // Get user's encrypted private key and decrypt it
+        const encryptedPrivateKey = JSON.parse(user.encrypted_private_key);
+        const userWallet = walletService.getUserWallet(encryptedPrivateKey, req.body.password || 'default');
+        
+        // Perform blockchain transfer
+        const transferResult = await walletService.transferProduct(
+          userWallet,
+          product.blockchain_id,
+          user.wallet_address,
+          product.quantity,
+          parseFloat(price),
+          location
+        );
+        
+        txHash = transferResult.txHash;
+        console.log('✅ Blockchain transfer successful:', txHash);
+        
+        // Update transaction with blockchain hash
+        await db.run(
+          'UPDATE transactions SET tx_hash = ? WHERE product_id = ? AND to_user_id = ? ORDER BY created_at DESC LIMIT 1',
+          [txHash, product.id, user.id]
+        );
+      } else {
+        console.log('⚠️ Blockchain transfer skipped - missing blockchain_id or wallet_address');
       }
     } catch (error) {
-      console.error('Blockchain transfer failed:', error);
+      console.error('❌ Blockchain transfer failed:', error);
+      // Continue anyway - database transaction is complete
     }
 
     res.json({
@@ -1082,6 +1461,255 @@ app.post('/api/admin/verify/:userId', async (req, res) => {
   } catch (error) {
     console.error('Verification error:', error);
     res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+// ==================== BLOCKCHAIN VERIFICATION ENDPOINTS ====================
+
+// Verify product on blockchain
+app.get('/api/blockchain/verify-product/:productId', async (req, res) => {
+  try {
+    const productId = req.params.productId;
+    console.log(`🔍 Verifying product ${productId} on blockchain...`);
+
+    // Get product from database
+    const product = await db.getProductById(productId);
+    if (!product) {
+      return res.status(404).json({ 
+        verified: false, 
+        error: 'Product not found in database' 
+      });
+    }
+
+    // Check if product has blockchain ID
+    if (!product.blockchain_id) {
+      return res.json({
+        verified: false,
+        error: 'Product not registered on blockchain',
+        product: product
+      });
+    }
+
+    // Verify on blockchain using smart contract
+    try {
+      const blockchainProduct = await walletService.getProduct(product.blockchain_id);
+      
+      // Get transaction history
+      const transactions = await db.getProductTransactions(productId);
+      const blockchainTransactions = transactions.filter(tx => tx.tx_hash);
+
+      res.json({
+        verified: true,
+        product: {
+          ...product,
+          blockchain_data: blockchainProduct
+        },
+        transactions: blockchainTransactions,
+        contract: {
+          address: process.env.CONTRACT_ADDRESS || '0x93556773D23B86D60A2468B4db203BFd06107635',
+          network: 'Avalanche Fuji Testnet'
+        },
+        verification_time: new Date().toISOString()
+      });
+
+    } catch (blockchainError) {
+      console.error('Blockchain verification failed:', blockchainError);
+      res.json({
+        verified: false,
+        error: 'Failed to verify on blockchain - product may not exist on chain',
+        product: product
+      });
+    }
+
+  } catch (error) {
+    console.error('Product verification error:', error);
+    res.status(500).json({ 
+      verified: false, 
+      error: 'Verification service error' 
+    });
+  }
+});
+
+// Verify transaction hash on blockchain
+app.get('/api/blockchain/verify-transaction/:txHash', async (req, res) => {
+  try {
+    const txHash = req.params.txHash;
+    console.log(`🔍 Verifying transaction ${txHash} on blockchain...`);
+
+    // Get transaction from database
+    const transaction = await db.query(
+      'SELECT t.*, p.name as product_name, fu.name as from_user_name, tu.name as to_user_name FROM transactions t LEFT JOIN products p ON t.product_id = p.id LEFT JOIN users fu ON t.from_user_id = fu.id LEFT JOIN users tu ON t.to_user_id = tu.id WHERE t.tx_hash = ?',
+      [txHash]
+    );
+
+    if (transaction.length === 0) {
+      return res.status(404).json({ 
+        verified: false, 
+        error: 'Transaction not found in database' 
+      });
+    }
+
+    const tx = transaction[0];
+
+    // Verify transaction on blockchain
+    try {
+      const receipt = await walletService.provider.getTransactionReceipt(txHash);
+      
+      if (!receipt) {
+        return res.json({
+          verified: false,
+          error: 'Transaction not found on blockchain',
+          transaction: tx
+        });
+      }
+
+      res.json({
+        verified: true,
+        transaction: tx,
+        blockchain_receipt: {
+          blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash,
+          gasUsed: receipt.gasUsed.toString(),
+          status: receipt.status,
+          confirmations: await walletService.provider.getBlockNumber() - receipt.blockNumber
+        },
+        contract: {
+          address: process.env.CONTRACT_ADDRESS || '0x93556773D23B86D60A2468B4db203BFd06107635',
+          network: 'Avalanche Fuji Testnet'
+        },
+        explorer_url: `https://testnet.snowtrace.io/tx/${txHash}`,
+        verification_time: new Date().toISOString()
+      });
+
+    } catch (blockchainError) {
+      console.error('Blockchain transaction verification failed:', blockchainError);
+      res.json({
+        verified: false,
+        error: 'Failed to verify transaction on blockchain',
+        transaction: tx
+      });
+    }
+
+  } catch (error) {
+    console.error('Transaction verification error:', error);
+    res.status(500).json({ 
+      verified: false, 
+      error: 'Verification service error' 
+    });
+  }
+});
+
+// Verify wallet address on blockchain
+app.get('/api/blockchain/verify-address/:address', async (req, res) => {
+  try {
+    const address = req.params.address;
+    console.log(`🔍 Verifying address ${address} on blockchain...`);
+
+    // Get user from database
+    const user = await db.query('SELECT * FROM users WHERE wallet_address = ?', [address]);
+    
+    if (user.length === 0) {
+      return res.status(404).json({ 
+        verified: false, 
+        error: 'Wallet address not found in database' 
+      });
+    }
+
+    const userData = user[0];
+
+    // Verify address on blockchain
+    try {
+      const balance = await walletService.provider.getBalance(address);
+      const isVerified = await walletService.isStakeholderVerified(address);
+
+      // Get user's products and transactions
+      const products = await db.getProductsByUserId(userData.id);
+      const transactions = await db.query(
+        'SELECT t.*, p.name as product_name FROM transactions t LEFT JOIN products p ON t.product_id = p.id WHERE t.from_user_id = ? OR t.to_user_id = ?',
+        [userData.id, userData.id]
+      );
+
+      res.json({
+        verified: true,
+        address: address,
+        user: {
+          name: userData.name,
+          role: userData.role,
+          location: userData.location,
+          is_verified: userData.is_verified
+        },
+        blockchain_data: {
+          balance: balance.toString(),
+          is_stakeholder_verified: isVerified,
+          network: 'Avalanche Fuji Testnet'
+        },
+        activity: {
+          products_created: products.length,
+          transactions: transactions.length,
+          blockchain_transactions: transactions.filter(tx => tx.tx_hash).length
+        },
+        contract: {
+          address: process.env.CONTRACT_ADDRESS || '0x93556773D23B86D60A2468B4db203BFd06107635',
+          network: 'Avalanche Fuji Testnet'
+        },
+        verification_time: new Date().toISOString()
+      });
+
+    } catch (blockchainError) {
+      console.error('Blockchain address verification failed:', blockchainError);
+      res.json({
+        verified: false,
+        error: 'Failed to verify address on blockchain',
+        user: userData
+      });
+    }
+
+  } catch (error) {
+    console.error('Address verification error:', error);
+    res.status(500).json({ 
+      verified: false, 
+      error: 'Verification service error' 
+    });
+  }
+});
+
+// Get blockchain statistics
+app.get('/api/blockchain/stats', async (req, res) => {
+  try {
+    console.log('📊 Getting blockchain statistics...');
+
+    // Get database stats
+    const totalProducts = await db.query('SELECT COUNT(*) as count FROM products');
+    const blockchainProducts = await db.query('SELECT COUNT(*) as count FROM products WHERE blockchain_id IS NOT NULL');
+    const totalTransactions = await db.query('SELECT COUNT(*) as count FROM transactions');
+    const blockchainTransactions = await db.query('SELECT COUNT(*) as count FROM transactions WHERE tx_hash IS NOT NULL');
+    const totalUsers = await db.query('SELECT COUNT(*) as count FROM users');
+    const verifiedUsers = await db.query('SELECT COUNT(*) as count FROM users WHERE is_verified = 1');
+
+    res.json({
+      database: {
+        total_products: totalProducts[0].count,
+        blockchain_products: blockchainProducts[0].count,
+        total_transactions: totalTransactions[0].count,
+        blockchain_transactions: blockchainTransactions[0].count,
+        total_users: totalUsers[0].count,
+        verified_users: verifiedUsers[0].count
+      },
+      blockchain: {
+        network: 'Avalanche Fuji Testnet',
+        contract_address: process.env.CONTRACT_ADDRESS || '0x93556773D23B86D60A2468B4db203BFd06107635',
+        explorer_url: 'https://testnet.snowtrace.io'
+      },
+      verification_percentage: {
+        products: Math.round((blockchainProducts[0].count / totalProducts[0].count) * 100) || 0,
+        transactions: Math.round((blockchainTransactions[0].count / totalTransactions[0].count) * 100) || 0,
+        users: Math.round((verifiedUsers[0].count / totalUsers[0].count) * 100) || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Blockchain stats error:', error);
+    res.status(500).json({ error: 'Failed to get blockchain statistics' });
   }
 });
 

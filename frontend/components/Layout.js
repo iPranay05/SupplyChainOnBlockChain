@@ -2,20 +2,22 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { 
-  Menu, 
-  X, 
-  Leaf, 
-  User, 
-  Package, 
-  QrCode, 
   Home, 
-  Scan,
+  Leaf,
+  Package, 
+  Scan, 
+  User, 
+  LogOut, 
+  BarChart3, 
+  ShoppingCart, 
+  Store, 
   Truck,
-  ShoppingCart,
-  Eye,
-  Plus,
-  BarChart3,
-  MapPin
+  DollarSign,
+  Menu,
+  X,
+  Shield,
+  MapPin,
+  TrendingUp
 } from 'lucide-react';
 
 export default function Layout({ children }) {
@@ -58,11 +60,10 @@ export default function Layout({ children }) {
     switch (userRole) {
       case 0: // Farmer - Creates batches, manages harvest
         return [
-          ...baseNavigation,
-          { name: 'My Dashboard', href: '/universal-dashboard', icon: BarChart3 },
-          { name: 'Create Batch', href: '/create-batch', icon: Plus },
-          { name: 'My Batches', href: '/my-batches', icon: Package },
-          { name: 'Farm Location', href: '/farm-location', icon: MapPin },
+          { name: 'Dashboard', href: '/farmer-dashboard', icon: BarChart3 },
+          { name: 'Harvest Log', href: '/harvest-log', icon: Package },
+          { name: 'Price Check', href: '/price-check', icon: DollarSign },
+          { name: 'Blockchain Verify', href: '/blockchain-verify', icon: Shield },
         ];
       
       case 1: // Distributor - Picks up from farmers, delivers to retailers
@@ -73,25 +74,24 @@ export default function Layout({ children }) {
           { name: 'My Inventory', href: '/my-inventory', icon: Package },
           { name: 'QR Scanner', href: '/qr-purchase', icon: Scan },
           { name: 'Transport', href: '/transport', icon: Truck },
+          { name: 'Blockchain Verify', href: '/blockchain-verify', icon: Shield },
         ];
       
       case 2: // Retailer - Receives from distributors, sells to consumers
         return [
-          ...baseNavigation,
-          { name: 'My Dashboard', href: '/universal-dashboard', icon: BarChart3 },
-          { name: 'Purchase Products', href: '/purchase-products', icon: ShoppingCart },
-          { name: 'My Store', href: '/my-store', icon: Package },
+          { name: 'Dashboard', href: '/retailer-dashboard', icon: BarChart3 },
+          { name: 'Inventory', href: '/retailer-inventory', icon: Package },
+          { name: 'Products', href: '/retailer-products', icon: Store },
           { name: 'QR Scanner', href: '/qr-purchase', icon: Scan },
-          { name: 'Sales', href: '/sales', icon: BarChart3 },
+          { name: 'Blockchain Verify', href: '/blockchain-verify', icon: Shield },
         ];
       
       case 3: // Consumer - Traces products, views supply chain
         return [
-          ...baseNavigation,
-          { name: 'Trace Products', href: '/trace-products', icon: Eye },
-          { name: 'QR Scanner', href: '/qr-purchase', icon: Scan },
-          { name: 'My Purchases', href: '/my-purchases', icon: Package },
-          { name: 'Supply Chain', href: '/supply-chain', icon: MapPin },
+          { name: 'Dashboard', href: '/consumer-dashboard', icon: BarChart3 },
+          { name: 'QR Scanner', href: '/consumer-scanner', icon: Scan },
+          { name: 'Product History', href: '/product-history', icon: Package },
+          { name: 'Blockchain Verify', href: '/blockchain-verify', icon: Shield },
         ];
       
       default:
@@ -100,6 +100,13 @@ export default function Layout({ children }) {
   };
 
   const navigation = getRoleBasedNavigation(user?.role);
+
+  const handleLogout = () => {
+    localStorage.removeItem('agriTrace_token');
+    localStorage.removeItem('agriTrace_user');
+    setUser(null);
+    router.push('/simple-login');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -131,7 +138,7 @@ export default function Layout({ children }) {
             {/* User Info & Mobile Menu */}
             <div className="flex items-center space-x-2">
               {user && !isMobile && (
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-3">
                   <span className="text-sm text-gray-600">
                     {user.name}
                   </span>
@@ -143,6 +150,14 @@ export default function Layout({ children }) {
                   }`}>
                     {['🌾 Farmer', '🚛 Distributor', '🏪 Retailer', '👤 Consumer'][user.role]}
                   </span>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center space-x-1 text-gray-600 hover:text-red-600 transition-colors"
+                    title="Logout"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="text-sm">Logout</span>
+                  </button>
                 </div>
               )}
 
@@ -204,14 +219,12 @@ export default function Layout({ children }) {
               {user && (
                 <button
                   onClick={() => {
-                    localStorage.removeItem('agriTrace_user');
-                    localStorage.removeItem('agriTrace_token');
-                    router.push('/');
+                    handleLogout();
                     setMobileMenuOpen(false);
                   }}
                   className="w-full flex items-center space-x-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-md transition-colors mt-4"
                 >
-                  <X className="w-5 h-5" />
+                  <LogOut className="w-5 h-5" />
                   <span className="font-medium">Logout</span>
                 </button>
               )}
